@@ -8,6 +8,10 @@ import cv2
 from aiohttp import web
 import json
 import ctypes
+import pyaudio
+
+
+
 
 
 # グローバル変数とロック
@@ -34,10 +38,10 @@ def vehicle_control_thread():
     global face_seen, rc_command
     while True:
         with alarm_mode_lock, rc_command_lock:
-            mode = alarm_mode
+            is_alarm_mode = alarm_mode
             command = rc_command
 
-        if mode:
+        if is_alarm_mode:
             with rc_command_lock:
                 rc_command = 0  # stop
             if not face_seen:
@@ -104,6 +108,18 @@ async def stream_image(request):
 				break
 	return ws
 
+async def steram_sound(request):
+    ws=web.WebSocketResponse()
+    await ws.prepare(request)
+    while(True):
+        sound_chunk=inputstream.read(CHUNK,exception_on_overflow=False)
+        #サウンドをWebSocketで送信
+        try:
+            await ws.send_bytes(sound_chunk)
+        except Exception as e:
+            print(f"WebSocket(Sound)エラー: {e}")
+            break
+
 
 async def rc_control(request):
     global  rc_command
@@ -166,6 +182,13 @@ camera = cv2.VideoCapture(0)
 camera.set(cv2.CAP_PROP_FPS, 30)
 camera.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
 camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+#音声ストリームの設定
+CHUNK=1024
+FORMAT=pyaudio.paInt16
+CHNNELS=1
+RATE=16000
+audio=pyaudio.PyAudio()
+inputstream=audio.open(format=pyaudio.paInt16,channels=1,rate=RATE,input=True)
 # ------------------- 起動 -------------------
 if __name__ == '__main__':
     threading.Thread(target=vehicle_control_thread, daemon=True).start()
@@ -176,6 +199,7 @@ if __name__ == '__main__':
                     web.post("/set_alarm", handle_set_alarm), 
                     web.post("/stop_alarm", handle_stop_alarm),
                     web.post("/rc_control", rc_control),
-                    web.get("/video", stream_image)])
+                    web.get("/video", stream_image),
+                    web.get("/audio", steram_sound)])
     web.run_app(app)
 

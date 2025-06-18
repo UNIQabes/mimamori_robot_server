@@ -20,18 +20,18 @@ void control_motor(int command)
 		return;
 	}
 
-	/*
-	for(int i =0;i<5;i++){
-		int onoff=0;
-		if(i==command){
-			onoff=1;
+	for (int i = 0; i < 5; i++)
+	{
+		int onoff = 0;
+		if (i == command)
+		{
+			onoff = 1;
 		}
-		pinMode(LED_PIN[i],OUTPUT);
-			digitalWrite(LED_PIN[i],onoff);
-		printf("command:%d\n",command);
+		pinMode(LED_PIN[i], OUTPUT);
+		digitalWrite(LED_PIN[i], onoff);
+		printf("command:%d\n", command);
 	}
-	*/
-
+	/*
 	pinMode(0, OUTPUT);
 	pinMode(1, OUTPUT);
 	pinMode(2, OUTPUT);
@@ -68,6 +68,16 @@ void control_motor(int command)
 		digitalWrite(2, 1);
 		digitalWrite(4, 0);
 	}
+
+	if (command == 0)
+	{
+		digitalWrite(0, 0);
+		digitalWrite(1, 0);
+		digitalWrite(2, 0);
+		digitalWrite(4, 0);
+	}
+	*/
+
 	/*
 	if (command == 0)
 	{
@@ -77,14 +87,6 @@ void control_motor(int command)
 		digitalWrite(4, 1);
 	}
 	*/
-
-	if (command == 0)
-	{
-		digitalWrite(0, 0);
-		digitalWrite(1, 0);
-		digitalWrite(2, 0);
-		digitalWrite(4, 0);
-	}
 
 	return;
 }
