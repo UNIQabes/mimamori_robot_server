@@ -9,9 +9,11 @@ from aiohttp import web
 import json
 import ctypes
 import pyaudio
+import requests
+import io
 
 
-
+cgi_imgupload_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/upload.py"
 
 
 # グローバル変数とロック
@@ -29,8 +31,35 @@ alarm_time_lock = threading.Lock()
 alarm_set_lock = threading.Lock()
 
 #モーター操作ライブラリ読み込み
-control_motor = ctypes.cdll.LoadLibrary("./ccode/control_motor.so")
-control_motor.setup()
+#control_motor = ctypes.cdll.LoadLibrary("./ccode/control_motor.so")
+#control_motor.setup()
+
+
+# ------------------- CGIに写真を送信するサーバー -------------------
+def send_video_via_cgi():
+    global camera
+    global cgi_imgupload_url
+    while True:
+        if not camera.isOpened():
+            print("カメラが開けません")
+        ret, frame = camera.read()
+
+        if not ret:
+            print("画像のキャプチャに失敗しました")
+
+        # メモリ上にJPEGエンコード
+        success, encoded_image = cv2.imencode('.jpg', frame)
+        if not success:
+            print("画像のエンコードに失敗しました")
+
+        # バイトIOに変換
+        image_bytes = io.BytesIO(encoded_image.tobytes())
+
+        # multipart/form-data形式で送信
+        files = {'file': ('image.jpg', image_bytes, 'image/jpeg')}
+        response = requests.post(cgi_imgupload_url, files=files)
+
+        print("サーバーの応答:", response.text)
 
 
 # ------------------- 車体制御スレッド -------------------
@@ -194,13 +223,16 @@ inputstream=audio.open(format=pyaudio.paInt16,channels=1,rate=RATE,input=True)
 if __name__ == '__main__':
     threading.Thread(target=vehicle_control_thread, daemon=True).start()
     threading.Thread(target=alarm_check_thread, daemon=True).start()
+    threading.Thread(target=send_video_via_cgi,daemon=True).start()
     
     app=web.Application()
     app.add_routes([web.get("/ws",stream_image),
                     web.post("/set_alarm", handle_set_alarm), 
                     web.post("/stop_alarm", handle_stop_alarm),
-                    web.post("/rc_control", rc_control),
-                    web.get("/video", stream_image),
-                    web.get("/audio", steram_sound)])
+                    web.post("/rc_control", rc_control)
+#                    web.get("/video", stream_image),
+#                    web.get("/audio", steram_sound)
+                    ]
+                    )
     web.run_app(app)
 
