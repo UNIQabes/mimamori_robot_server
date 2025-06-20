@@ -31,8 +31,8 @@ alarm_time_lock = threading.Lock()
 alarm_set_lock = threading.Lock()
 
 #モーター操作ライブラリ読み込み
-#control_motor = ctypes.cdll.LoadLibrary("./ccode/control_motor.so")
-#control_motor.setup()
+control_motor = ctypes.cdll.LoadLibrary("./ccode/control_motor.so")
+control_motor.setup()
 
 
 # ------------------- CGIに写真を送信するサーバー -------------------
