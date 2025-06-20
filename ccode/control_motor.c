@@ -14,6 +14,7 @@ void setup()
 void control_motor(int command)
 {
 
+	/*
 	if (command > 4)
 	{
 		printf("Error : command must be specified from 0 to 4.\n");
@@ -31,7 +32,8 @@ void control_motor(int command)
 		digitalWrite(LED_PIN[i], onoff);
 		printf("command:%d\n", command);
 	}
-	/*
+	*/
+
 	pinMode(0, OUTPUT);
 	pinMode(1, OUTPUT);
 	pinMode(2, OUTPUT);
@@ -76,7 +78,6 @@ void control_motor(int command)
 		digitalWrite(2, 0);
 		digitalWrite(4, 0);
 	}
-	*/
 
 	/*
 	if (command == 0)

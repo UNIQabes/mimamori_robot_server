@@ -119,6 +119,7 @@ async def steram_sound(request):
         except Exception as e:
             print(f"WebSocket(Sound)エラー: {e}")
             break
+    return ws
 
 
 async def rc_control(request):
