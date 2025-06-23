@@ -14,11 +14,13 @@ import io
 
 
 serverUpUnixTime=int(time.time()*1000)
-validAlarmBounce=serverUpUnixTime
+validAlarmBounce=int(time.time()*1000)
+validStopAlrmBounce=int(time.time()*1000)
 
 cgi_imgupload_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/upload.py"
 cgi_cmdfetch_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/fetch_rc_control.py"
-cgi_alarmtimefetch_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/fetch_timer_date.py.py"
+cgi_alarmtimefetch_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/fetch_timer_date.py"
+cgi_stopalarmfetch_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/fetch_stop_alarm.py"
 
 
 
@@ -111,21 +113,34 @@ def get_cmd_via_cgi():
                     rc_command = 0
                 print(f"in:{rc_command}")
         else : 
-            print(f"cmdSetUnixtime>serverUpUnixTime={cmdSetUnixtime>serverUpUnixTime}")
+            pass
+            #print(f"cmdSetUnixtime>serverUpUnixTime={cmdSetUnixtime>serverUpUnixTime}")
         time.sleep(0.1)
 
 def get_alarmtime_via_cgi():
     global alarm_unixtime, alarm_set
     while(True):
-       
         response=requests.get(cgi_alarmtimefetch_url)
         res_alarmUnixTime=response.json()["alarmUnixTime"]
         alarmSetUnixtime=response.json()["setUnixTime"]
-
+        print(f"{res_alarmUnixTime} / {alarmSetUnixtime}")
         with alarm_time_lock, alarm_set_lock:
             alarm_set=(alarmSetUnixtime>validAlarmBounce)
             alarm_unixtime=res_alarmUnixTime
             print(f"set alarm:{alarm_unixtime}")
+        time.sleep(10)
+
+def get_stopalarm_via_cgi():
+    global alarm_mode_lock, alarm_mode,validStopAlrmBounce
+    while(True):
+        response=requests.get(cgi_stopalarmfetch_url)
+        stopalarmUnixTime=response.json()["unixTime"]
+        print(f"{stopalarmUnixTime}")
+        if (stopalarmUnixTime > validStopAlrmBounce) and alarm_mode :
+            with alarm_mode_lock :
+                alarm_mode=False
+                validStopAlrmBounce=stopalarmUnixTime
+                print(f"stop alarm:{stopalarmUnixTime}")
         time.sleep(10)
     
 
@@ -176,15 +191,18 @@ def vehicle_control_thread():
 
 # ------------------- アラーム確認スレッド -------------------
 def alarm_check_thread():
-    global alarm_set, alarm_mode, alarm_hour, alarm_minute
+    global alarm_set, alarm_mode, alarm_hour, alarm_minute,alarm_unixtime
     while True:
-        now = datetime.datetime.now(tz=datetime.timezone.utc).astimezone(datetime.timezone(datetime.timedelta(hours=9)))  # 日本時間に変換
+        #now = datetime.datetime.now(tz=datetime.timezone.utc).astimezone(datetime.timezone(datetime.timedelta(hours=9)))  # 日本時間に変換
+        nowunixtime = int(time.time()*1000)
         with alarm_set_lock, alarm_mode_lock, alarm_time_lock:
-            print (f"現在時刻: {now.hour}:{now.minute}")
-            print(f"アラーム設定: {alarm_set}, 時刻: {alarm_hour}:{alarm_minute}")
-            if alarm_set and (now.hour > alarm_hour or (now.hour == alarm_hour and now.minute >= alarm_minute)):
+            print (f"現在時刻: {nowunixtime}")
+            print(f"アラーム設定: {alarm_set}, 時刻: {alarm_unixtime}")
+            if alarm_set and (nowunixtime>alarm_unixtime):
                 alarm_mode = True
                 alarm_set = False
+                validAlarmBounce=nowunixtime
+                validStopAlrmBounce=nowunixtime
         time.sleep(10)
 
 # ------------------- リクエスト処理スレッド群 -------------------
@@ -288,11 +306,11 @@ audio=pyaudio.PyAudio()
 inputstream=audio.open(format=pyaudio.paInt16,channels=1,rate=RATE,input=True)
 # ------------------- 起動 -------------------
 if __name__ == '__main__':
-    threading.Thread(target=vehicle_control_thread, daemon=True).start()
+    #threading.Thread(target=vehicle_control_thread, daemon=True).start()
     threading.Thread(target=alarm_check_thread, daemon=True).start()
     threading.Thread(target=get_cmd_via_cgi,daemon=True).start()
     threading.Thread(target=get_alarmtime_via_cgi,daemon=True).start()
-    threading.Thread(target=send_video_via_cgi,daemon=True).start()
+    #threading.Thread(target=send_video_via_cgi,daemon=True).start()
     
     app=web.Application()
     app.add_routes([web.get("/ws",stream_image),
