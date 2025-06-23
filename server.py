@@ -52,8 +52,8 @@ alarm_time_lock = threading.Lock()
 alarm_set_lock = threading.Lock()
 
 #モーター操作ライブラリ読み込み
-#control_motor = ctypes.cdll.LoadLibrary("./ccode/control_motor.so")
-#control_motor.setup()
+control_motor = ctypes.cdll.LoadLibrary("./ccode/control_motor.so")
+control_motor.setup()
 
 
 # ------------------- CGIサーバーに写真を送信するスレッド -------------------
@@ -80,7 +80,8 @@ def send_video_via_cgi():
         files = {'file': ('image.jpg', image_bytes, 'image/jpeg')}
         response = requests.post(cgi_imgupload_url, files=files)
 
-        print("サーバーの応答:", response.text)
+        #print("サーバーの応答:", response.text)
+        time.sleep(0.03)
 
 
 def get_cmd_via_cgi():
@@ -184,7 +185,7 @@ def vehicle_control_thread():
 def alarm_check_thread():
     global alarm_set, alarm_mode, alarm_hour, alarm_minute,alarm_unixtime,validAlarmBounce,validStopAlrmBounce
     while True:
-        #now = datetime.datetime.now(tz=datetime.timezone.utc).astimezone(datetime.timezone(datetime.timedelta(hours=9)))  # 日本時間に変換
+        now = datetime.datetime.now(tz=datetime.timezone.utc).astimezone(datetime.timezone(datetime.timedelta(hours=9)))  # 日本時間に変換
         nowunixtime = int(time.time()*1000)
         with alarm_set_lock, alarm_mode_lock, alarm_time_lock:
             print (f"現在時刻: {ut2DtUtStr(nowunixtime)}")
@@ -218,7 +219,7 @@ def detect_face():
     return found, pos, area
 
 #カメラの設定
-camera = cv2.VideoCapture(0)
+camera = cv2.VideoCapture(1)
 camera.set(cv2.CAP_PROP_FPS, 30)
 camera.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
 camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -231,14 +232,20 @@ audio=pyaudio.PyAudio()
 inputstream=audio.open(format=pyaudio.paInt16,channels=1,rate=RATE,input=True)
 # ------------------- 起動 -------------------
 if __name__ == '__main__':
-    #threading.Thread(target=vehicle_control_thread, daemon=True).start()
-    threading.Thread(target=alarm_check_thread, daemon=True).start()
-    threading.Thread(target=get_cmd_via_cgi,daemon=True).start()
-    threading.Thread(target=get_alarmtime_via_cgi,daemon=True).start()
-    threading.Thread(target=get_stopalarm_via_cgi,daemon=True).start()
-    #threading.Thread(target=send_video_via_cgi,daemon=True).start()
+    thrd1=threading.Thread(target=vehicle_control_thread, daemon=True)
+    thrd2=threading.Thread(target=alarm_check_thread, daemon=True)
+    thrd3=threading.Thread(target=get_cmd_via_cgi,daemon=True)
+    thrd4=threading.Thread(target=get_alarmtime_via_cgi,daemon=True)
+    thrd5=threading.Thread(target=get_stopalarm_via_cgi,daemon=True)
+    thrd6=threading.Thread(target=send_video_via_cgi,daemon=True)
+    thrds= [thrd1,thrd2,thrd3,thrd4,thrd5,thrd6]
+    for athrd in thrds:
+        athrd.start()
+    for athrd in [thrd1,thrd2,thrd3,thrd4,thrd5,thrd6]:
+        athrd.join()
     
-    app=web.Application()
+    
+    #app=web.Application()
     #app.add_routes([web.get("/ws",stream_image),
                     #web.post("/set_alarm", handle_set_alarm), 
                     #web.post("/stop_alarm", handle_stop_alarm),
@@ -246,5 +253,6 @@ if __name__ == '__main__':
                     #web.get("/video", stream_image),
                     #web.get("/audio", steram_sound)
                     #])
-    web.run_app(app)
+    #web.run_app(app)
+
 
