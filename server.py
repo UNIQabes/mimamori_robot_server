@@ -13,7 +13,13 @@ import requests
 import io
 
 
+serverUpUnixTime=int(time.time()*1000)
+validAlarmBounce=serverUpUnixTime
+
 cgi_imgupload_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/upload.py"
+cgi_cmdfetch_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/fetch_rc_control.py"
+cgi_alarmtimefetch_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/fetch_timer_date.py.py"
+
 
 
 # グローバル変数とロック
@@ -24,6 +30,8 @@ alarm_hour = 0
 alarm_minute = 0
 face_seen = False
 
+alarm_unixtime=0
+
 # 個別ロック
 alarm_mode_lock = threading.Lock()
 rc_command_lock = threading.Lock()
@@ -31,8 +39,8 @@ alarm_time_lock = threading.Lock()
 alarm_set_lock = threading.Lock()
 
 #モーター操作ライブラリ読み込み
-control_motor = ctypes.cdll.LoadLibrary("./ccode/control_motor.so")
-control_motor.setup()
+#control_motor = ctypes.cdll.LoadLibrary("./ccode/control_motor.so")
+#control_motor.setup()
 
 
 # ------------------- CGIに写真を送信するサーバー -------------------
@@ -61,6 +69,65 @@ def send_video_via_cgi():
 
         print("サーバーの応答:", response.text)
 
+def get_cmd_via_cgi():
+    global rc_command, rc_command_lock
+    while(True):
+        response=requests.get(cgi_cmdfetch_url)
+        command=response.json()["message"]
+        cmdSetUnixtime=response.json()["unixtime"]
+        if(cmdSetUnixtime>serverUpUnixTime):
+            with rc_command_lock:
+                if command == 'forward':
+                    rc_command = 1
+                elif command == 'backward':
+                    rc_command = 2
+                elif command == 'right':
+                    rc_command = 3
+                elif command == 'left':
+                    rc_command = 4
+                elif command == 'stop':
+                    rc_command = 0
+                print(f"in:{rc_command}")
+        else : 
+            print(f"cmdSetUnixtime>serverUpUnixTime={cmdSetUnixtime>serverUpUnixTime}")
+        time.sleep(0.1)
+def get_cmd_via_cgi():
+    global rc_command, rc_command_lock
+    while(True):
+        response=requests.get(cgi_cmdfetch_url)
+        command=response.json()["message"]
+        cmdSetUnixtime=response.json()["unixtime"]
+        if(cmdSetUnixtime>serverUpUnixTime):
+            with rc_command_lock:
+                if command == 'forward':
+                    rc_command = 1
+                elif command == 'backward':
+                    rc_command = 2
+                elif command == 'right':
+                    rc_command = 3
+                elif command == 'left':
+                    rc_command = 4
+                elif command == 'stop':
+                    rc_command = 0
+                print(f"in:{rc_command}")
+        else : 
+            print(f"cmdSetUnixtime>serverUpUnixTime={cmdSetUnixtime>serverUpUnixTime}")
+        time.sleep(0.1)
+
+def get_alarmtime_via_cgi():
+    global alarm_unixtime, alarm_set
+    while(True):
+       
+        response=requests.get(cgi_alarmtimefetch_url)
+        res_alarmUnixTime=response.json()["alarmUnixTime"]
+        alarmSetUnixtime=response.json()["setUnixTime"]
+
+        with alarm_time_lock, alarm_set_lock:
+            alarm_set=(alarmSetUnixtime>validAlarmBounce)
+            alarm_unixtime=res_alarmUnixTime
+            print(f"set alarm:{alarm_unixtime}")
+        time.sleep(10)
+    
 
 # ------------------- 車体制御スレッド -------------------
 def vehicle_control_thread():
@@ -223,15 +290,17 @@ inputstream=audio.open(format=pyaudio.paInt16,channels=1,rate=RATE,input=True)
 if __name__ == '__main__':
     threading.Thread(target=vehicle_control_thread, daemon=True).start()
     threading.Thread(target=alarm_check_thread, daemon=True).start()
+    threading.Thread(target=get_cmd_via_cgi,daemon=True).start()
+    threading.Thread(target=get_alarmtime_via_cgi,daemon=True).start()
     threading.Thread(target=send_video_via_cgi,daemon=True).start()
     
     app=web.Application()
     app.add_routes([web.get("/ws",stream_image),
-                    web.post("/set_alarm", handle_set_alarm), 
+                    #web.post("/set_alarm", handle_set_alarm), 
                     web.post("/stop_alarm", handle_stop_alarm),
-                    web.post("/rc_control", rc_control)
-#                    web.get("/video", stream_image),
-#                    web.get("/audio", steram_sound)
+                    #web.post("/rc_control", rc_control),
+                    web.get("/video", stream_image),
+                    #web.get("/audio", steram_sound)
                     ]
                     )
     web.run_app(app)
