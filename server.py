@@ -3,6 +3,7 @@
 import threading
 import time
 import datetime
+import zoneinfo
 import asyncio
 import cv2
 from aiohttp import web
@@ -13,6 +14,13 @@ import requests
 import io
 
 
+#util
+def ut2Dt(unixtime):
+    #return datetime.datetime.fromtimestamp(unixtime/1000,tz=datetime.timezone.utc)
+    return datetime.datetime.fromtimestamp(unixtime/1000,tz=zoneinfo.ZoneInfo(key='Asia/Tokyo'))
+def ut2DtUtStr(unixtime):
+    return f"{ut2Dt(unixtime)}({unixtime})"
+
 serverUpUnixTime=int(time.time()*1000)
 validAlarmBounce=int(time.time()*1000)
 validStopAlrmBounce=int(time.time()*1000)
@@ -21,6 +29,9 @@ cgi_imgupload_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/upload.py"
 cgi_cmdfetch_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/fetch_rc_control.py"
 cgi_alarmtimefetch_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/fetch_timer_date.py"
 cgi_stopalarmfetch_url = "https://cgi.u.tsukuba.ac.jp/~s2520579/fetch_stop_alarm.py"
+
+
+
 
 
 
@@ -45,7 +56,7 @@ alarm_set_lock = threading.Lock()
 #control_motor.setup()
 
 
-# ------------------- CGIに写真を送信するサーバー -------------------
+# ------------------- CGIサーバーに写真を送信するスレッド -------------------
 def send_video_via_cgi():
     global camera
     global cgi_imgupload_url
@@ -71,28 +82,7 @@ def send_video_via_cgi():
 
         print("サーバーの応答:", response.text)
 
-def get_cmd_via_cgi():
-    global rc_command, rc_command_lock
-    while(True):
-        response=requests.get(cgi_cmdfetch_url)
-        command=response.json()["message"]
-        cmdSetUnixtime=response.json()["unixtime"]
-        if(cmdSetUnixtime>serverUpUnixTime):
-            with rc_command_lock:
-                if command == 'forward':
-                    rc_command = 1
-                elif command == 'backward':
-                    rc_command = 2
-                elif command == 'right':
-                    rc_command = 3
-                elif command == 'left':
-                    rc_command = 4
-                elif command == 'stop':
-                    rc_command = 0
-                print(f"in:{rc_command}")
-        else : 
-            print(f"cmdSetUnixtime>serverUpUnixTime={cmdSetUnixtime>serverUpUnixTime}")
-        time.sleep(0.1)
+
 def get_cmd_via_cgi():
     global rc_command, rc_command_lock
     while(True):
@@ -118,16 +108,17 @@ def get_cmd_via_cgi():
         time.sleep(0.1)
 
 def get_alarmtime_via_cgi():
-    global alarm_unixtime, alarm_set
+    global alarm_unixtime, alarm_set,validAlarmBounce
     while(True):
         response=requests.get(cgi_alarmtimefetch_url)
         res_alarmUnixTime=response.json()["alarmUnixTime"]
         alarmSetUnixtime=response.json()["setUnixTime"]
-        print(f"{res_alarmUnixTime} / {alarmSetUnixtime}")
+        print(f"ServerState/ alarmUnixTime : {ut2DtUtStr(res_alarmUnixTime)}, setUnixTime : {ut2DtUtStr(alarmSetUnixtime)}")
         with alarm_time_lock, alarm_set_lock:
             alarm_set=(alarmSetUnixtime>validAlarmBounce)
             alarm_unixtime=res_alarmUnixTime
-            print(f"set alarm:{alarm_unixtime}")
+            if(alarm_set):
+                print(f"set alarm:{ut2DtUtStr(alarm_unixtime)}")
         time.sleep(10)
 
 def get_stopalarm_via_cgi():
@@ -135,12 +126,12 @@ def get_stopalarm_via_cgi():
     while(True):
         response=requests.get(cgi_stopalarmfetch_url)
         stopalarmUnixTime=response.json()["unixTime"]
-        print(f"{stopalarmUnixTime}")
+        print(f"ServerState/stop alarm:{ut2DtUtStr(stopalarmUnixTime)}")
         if (stopalarmUnixTime > validStopAlrmBounce) and alarm_mode :
             with alarm_mode_lock :
                 alarm_mode=False
                 validStopAlrmBounce=stopalarmUnixTime
-                print(f"stop alarm:{stopalarmUnixTime}")
+                print("Alram Stopped")
         time.sleep(10)
     
 
@@ -191,91 +182,25 @@ def vehicle_control_thread():
 
 # ------------------- アラーム確認スレッド -------------------
 def alarm_check_thread():
-    global alarm_set, alarm_mode, alarm_hour, alarm_minute,alarm_unixtime
+    global alarm_set, alarm_mode, alarm_hour, alarm_minute,alarm_unixtime,validAlarmBounce,validStopAlrmBounce
     while True:
         #now = datetime.datetime.now(tz=datetime.timezone.utc).astimezone(datetime.timezone(datetime.timedelta(hours=9)))  # 日本時間に変換
         nowunixtime = int(time.time()*1000)
         with alarm_set_lock, alarm_mode_lock, alarm_time_lock:
-            print (f"現在時刻: {nowunixtime}")
-            print(f"アラーム設定: {alarm_set}, 時刻: {alarm_unixtime}")
+            print (f"現在時刻: {ut2DtUtStr(nowunixtime)}")
             if alarm_set and (nowunixtime>alarm_unixtime):
+                print("Enable alarm")
                 alarm_mode = True
                 alarm_set = False
                 validAlarmBounce=nowunixtime
                 validStopAlrmBounce=nowunixtime
+            print(f"アラームON: {alarm_set}, アラーム時刻: {ut2DtUtStr(alarm_unixtime)}")
         time.sleep(10)
 
-# ------------------- リクエスト処理スレッド群 -------------------
-async def stream_image(request):
-	ws=web.WebSocketResponse()
-	await ws.prepare(request)
-	while(True):
-		success, frame = camera.read()
-		if(success):
-			_,buffer=cv2.imencode(".jpg",frame)
-			sentbytes=buffer.tobytes()
-			try:
-				#print(f"送信バイト数: {len(sentbytes)}")
-				await ws.send_bytes(sentbytes)
-			except Exception as e:
-				print(f"WebSocketエラー: {e}")
-				break
-	return ws
-
-async def steram_sound(request):
-    ws=web.WebSocketResponse()
-    await ws.prepare(request)
-    while(True):
-        sound_chunk=inputstream.read(CHUNK,exception_on_overflow=False)
-        #サウンドをWebSocketで送信
-        try:
-            await ws.send_bytes(sound_chunk)
-        except Exception as e:
-            print(f"WebSocket(Sound)エラー: {e}")
-            break
-    return ws
-
-
-async def rc_control(request):
-    global  rc_command
-    data = await request.post()
-    command = data.get("command")
-    print(f"rc_control called:{command}")
-    if command in ["forward", "backward", "left", "right", "stop"]:
-        
-        with rc_command_lock:
-            if command == 'forward':
-                rc_command = 1
-            elif command == 'backward':
-                rc_command = 2
-            elif command == 'right':
-                rc_command = 3
-            elif command == 'left':
-                rc_command = 4
-            elif command == 'stop':
-                rc_command = 0
-            print(f"in:{rc_command}")
-        return web.Response(text="OK")
-    else:
-        return web.Response(text="Invalid command", status=400)
 
 
 
-# ------------------- aiohttp サーバー -------------------
-async def handle_set_alarm(request):
-    global alarm_hour, alarm_minute, alarm_set
-    data = await request.json()
-    with alarm_time_lock, alarm_set_lock:
-        alarm_hour = int(data['hour'])
-        alarm_minute = int(data['minute'])
-        alarm_set = True
-    return web.Response(text='Alarm set')
 
-async def handle_stop_alarm(request):
-    global alarm_mode
-    with alarm_mode_lock:
-        alarm_mode = False
-    return web.Response(text='Alarm stopped')
 
 
 # ------------------- モーター・顔検出ダミー関数 -------------------
@@ -310,16 +235,16 @@ if __name__ == '__main__':
     threading.Thread(target=alarm_check_thread, daemon=True).start()
     threading.Thread(target=get_cmd_via_cgi,daemon=True).start()
     threading.Thread(target=get_alarmtime_via_cgi,daemon=True).start()
+    threading.Thread(target=get_stopalarm_via_cgi,daemon=True).start()
     #threading.Thread(target=send_video_via_cgi,daemon=True).start()
     
     app=web.Application()
-    app.add_routes([web.get("/ws",stream_image),
+    #app.add_routes([web.get("/ws",stream_image),
                     #web.post("/set_alarm", handle_set_alarm), 
-                    web.post("/stop_alarm", handle_stop_alarm),
+                    #web.post("/stop_alarm", handle_stop_alarm),
                     #web.post("/rc_control", rc_control),
-                    web.get("/video", stream_image),
+                    #web.get("/video", stream_image),
                     #web.get("/audio", steram_sound)
-                    ]
-                    )
+                    #])
     web.run_app(app)
 
